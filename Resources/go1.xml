@@ -7,23 +7,23 @@
     <default class="go1">
       <geom friction="0.6" margin="0.001" condim="1"/>
       <!-- <joint axis="0 1 0" damping="2" armature="0.01" frictionloss="0.2"/> -->
-      <joint axis="0 1 0" damping="1.5" armature="0.00001" frictionloss="0.01"/>
-      <position kp="100" forcerange="-23.7 23.7"/>
+      <joint axis="0 1 0" damping="1.0" armature="0.0" frictionloss="0.01"/>
+      <position kp="50.0" forcerange="-23.7 23.7"/>
       <default class="abduction">
         <!-- <joint axis="1 0 0" damping="1" range="-0.863 0.863"/> -->
-        <joint axis="1 0 0" damping="0.001" range="-0.863 0.863"/>
+        <joint axis="1 0 0" damping="1.00" range="-0.863 0.863"/>
         <position ctrlrange="-0.863 0.863"/>
-        <motor ctrlrange="-18 18"/>
+        <motor ctrlrange="-23.7 23.7"/>
       </default>
       <default class="hip">
-        <joint range="-0.686 4.501"/>
-        <position ctrlrange="-0.686 4.501"/>
-        <motor ctrlrange="-18 18"/>
+        <joint range="-0.686 2.966"/>
+        <position ctrlrange="-0.686 2.966"/>
+        <motor ctrlrange="-23.7 23.7"/>
       </default>
       <default class="knee">
-        <joint range="-2.818 -0.888"/>
+        <joint range="-2.721 -0.837"/>
         <position forcerange="-35.55 35.55" ctrlrange="-2.818 -0.888"/>
-        <motor ctrlrange="-25 25"/>
+        <motor ctrlrange="-35.55 35.55"/>
       </default>
       <default class="visual">
         <geom type="mesh" contype="0" conaffinity="0" group="2" material="dark"/>
@@ -260,7 +260,7 @@
     <accelerometer name="accelerometer" site="trunk_sensor_site"/>
     <gyro name="gyro" site="trunk_sensor_site"/>
     <!-- <rangefinder name="rangefinderarray" site="trunk_camera_site"/> -->
-    <rangefinder name="RF_Array" site="RFSite"/>
+    <!-- <rangefinder name="RF_Array" site="RFSite"/> -->
     <touch name="touch_FR" site="FR"/>
     <touch name="touch_FL" site="FL"/>
     <touch name="touch_RR" site="RR"/>

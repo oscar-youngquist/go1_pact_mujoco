@@ -3,7 +3,7 @@
   
   <option timestep=".002"/>
 
-  <!-- <option integrator="RK4"/> -->
+  <option integrator="RK4"/>
 
   <statistic center="0 0 0.1" extent="0.8"/>
 
