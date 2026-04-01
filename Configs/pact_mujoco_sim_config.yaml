@@ -15,5 +15,11 @@ action_dim: 12
 # simulation timestep, needs to align with what is in scene.xml
 pd_timestep: 0.002
 
+ctrl_type: 'pact'
+ctrl_config_file: 'pact_config.yaml'
+
+# ctrl_type: 'pos'
+# ctrl_config_file: 'pos_config.yaml'
+
 # joystick device
 js_device: '/dev/input/js0'

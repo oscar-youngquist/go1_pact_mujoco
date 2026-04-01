@@ -1,0 +1,19 @@
+sim_mode: 0 # 0: play, 1: record
+# sim_mode: 1 # 0: play, 1: record
+
+sim_duration: 40000.0
+# sim_duration: 60.0
+
+Mujoco_XML_FileName: 'Resources/scene.xml'
+
+# number of Newtons applied with each key-press
+external_z_step: 10
+
+num_joints: 12
+action_dim: 12
+
+# simulation timestep, needs to align with what is in scene.xml
+pd_timestep: 0.002
+
+# joystick device
+js_device: '/dev/input/js0'

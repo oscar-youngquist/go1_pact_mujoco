@@ -18,6 +18,105 @@
 #include <chrono>
 #include <type_traits>
 
+
+#include <array>
+#include <filesystem>
+#include <string>
+#include <sstream>
+#include <iomanip>
+#include <limits>
+
+
+// Serialize array → "JSON array string"
+template <size_t N>
+inline std::string array_to_json_string(const std::array<float, N>& arr) {
+    std::ostringstream oss;
+    oss << "\"[";
+    oss << std::setprecision(std::numeric_limits<float>::max_digits10);
+
+    for (size_t i = 0; i < N; ++i) {
+        oss << arr[i];
+        if (i + 1 < N) {
+            oss << ", ";
+        }
+    }
+
+    oss << "]\"";
+    return oss.str();
+}
+
+// Check if file exists and is empty
+inline bool file_is_empty(const std::string& filename) {
+    std::ifstream file(filename, std::ios::ate | std::ios::binary);
+    return !file.is_open() || file.tellg() == 0;
+}
+
+// 5 vectors - 
+// q_des (12), q_act (12), tau_ff (12), tau_pd (12), applied_torque (12), obs (57), obs-hist (57*10)
+inline void write_vectors_to_csv(
+    const std::string& filename,
+    const std::array<float, 12>& v1,
+    const std::array<float, 12>& v2,
+    const std::array<float, 12>& v3,
+    const std::array<float, 12>& v4,
+    const std::array<float, 12>& v5,
+    const std::array<float, 57>& v6,
+    const std::array<float, 570>& v7,
+    const std::vector<std::string>& headers = {}
+) {
+    bool write_header = file_is_empty(filename);
+
+    std::ofstream file(filename, std::ios::app);
+
+    if (!file.is_open()) {
+        std::cerr << "Error opening file\n";
+        return;
+    }
+
+    // Write header only once (on new/empty file)
+    if (write_header && !headers.empty()) {
+        for (size_t i = 0; i < headers.size(); ++i) {
+            file << headers[i];
+            if (i + 1 < headers.size()) {
+                file << ",";
+            }
+        }
+        file << "\n";
+    }
+
+    // Write row
+    file << array_to_json_string(v1) << ","
+         << array_to_json_string(v2) << ","
+         << array_to_json_string(v3) << ","
+         << array_to_json_string(v4) << ","
+         << array_to_json_string(v5) << ","
+         << array_to_json_string(v6) << ","
+         << array_to_json_string(v7) << "\n";
+}
+
+
+// Print std::array
+template <typename T, size_t N>
+void print_array(const std::string& name, const std::array<T, N>& arr) {
+    std::cout << name << " [";
+    for (size_t i = 0; i < N; ++i) {
+        std::cout << arr[i];
+        if (i + 1 < N) std::cout << ", ";
+    }
+    std::cout << "]\n";
+}
+
+// Print std::vector
+template <typename T>
+void print_vector(const std::string& name, const std::vector<T>& vec) {
+    std::cout << name << " [";
+    for (size_t i = 0; i < vec.size(); ++i) {
+        std::cout << vec[i];
+        if (i + 1 < vec.size()) std::cout << ", ";
+    }
+    std::cout << "]\n";
+}
+
 static std::list<std::string> gs_fileName_string; // global & static
 
 /*!

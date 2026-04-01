@@ -1,30 +1,32 @@
 <mujoco model="go1">
-  <compiler angle="radian" meshdir="assets" autolimits="true"/>
+  <compiler angle="radian" meshdir="assets" autolimits="true" eulerseq="xyz"/>
 
   <option cone="elliptic" impratio="100"/>
 
   <default>
     <default class="go1">
-      <geom friction="0.6" margin="0.001" condim="1"/>
-      <!-- <joint axis="0 1 0" damping="2" armature="0.01" frictionloss="0.2"/> -->
-      <joint axis="0 1 0" damping="1.0" armature="0.0" frictionloss="0.01"/>
-      <position kp="50.0" forcerange="-23.7 23.7"/>
+      <geom friction="0.4" margin="0.001" condim="1"/>
+      <joint axis="0 1 0" damping="0.1" armature="0.01" frictionloss="0.2"/>
+
       <default class="abduction">
         <!-- <joint axis="1 0 0" damping="1" range="-0.863 0.863"/> -->
-        <joint axis="1 0 0" damping="1.00" range="-0.863 0.863"/>
-        <position ctrlrange="-0.863 0.863"/>
+        <joint axis="1 0 0" range="-0.8029 0.8029"/>
+        <!-- <position ctrlrange="-0.863 0.863"/> -->
         <motor ctrlrange="-23.7 23.7"/>
       </default>
+      
       <default class="hip">
-        <joint range="-0.686 2.966"/>
-        <position ctrlrange="-0.686 2.966"/>
+        <joint range="-0.6430 2.9660"/>
+        <!-- <position ctrlrange="-0.686 2.966"/> -->
         <motor ctrlrange="-23.7 23.7"/>
       </default>
+      
       <default class="knee">
-        <joint range="-2.721 -0.837"/>
-        <position forcerange="-35.55 35.55" ctrlrange="-2.818 -0.888"/>
+        <joint range="-2.721 -0.8370"/>
+        <!-- <position forcerange="-35.55 35.55" ctrlrange="-2.818 -0.888"/> -->
         <motor ctrlrange="-35.55 35.55"/>
       </default>
+      
       <default class="visual">
         <geom type="mesh" contype="0" conaffinity="0" group="2" material="dark"/>
       </default>
