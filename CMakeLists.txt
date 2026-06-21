@@ -18,10 +18,11 @@ list(APPEND CMAKE_PREFIX_PATH "${PROJECT_SOURCE_DIR}/3rd_parties/libtorch")
 # Optional: if auto-discovery still fails, use this instead:
 set(Torch_DIR "${PROJECT_SOURCE_DIR}/3rd_parties/libtorch/share/cmake/Torch")
 
-find_package(Torch REQUIRED)
+set(CUDA_TOOLKIT_ROOT_DIR "${PROJECT_SOURCE_DIR}/3rd_parties/cuda-12.8")
+set(CUDAToolkit_ROOT "${CUDA_TOOLKIT_ROOT_DIR}")
+set(CMAKE_CUDA_COMPILER "${CUDA_TOOLKIT_ROOT_DIR}/bin/nvcc")
 
-set(CUDA_TOOLKIT_ROOT_DIR "/usr/local/cuda-12.4")
-set(CMAKE_CUDA_COMPILER "/usr/local/cuda-12.4/bin/nvcc")
+find_package(Torch REQUIRED)
 
 set(THIS_COM "${PROJECT_SOURCE_DIR}/")
 configure_file(
@@ -38,7 +39,11 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -no-pie -march=native -ggdb -Wall \
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -ggdb -march=native -I.")
 
-include_directories("/usr/local/include/eigen3")
+if(EXISTS "/usr/include/eigen3")
+    include_directories("/usr/include/eigen3")
+else()
+    include_directories("/usr/local/include/eigen3")
+endif()
 include_directories(${CMAKE_BINARY_DIR})
 include_directories(${CMAKE_SOURCE_DIR}/Utils)
 include_directories(${CMAKE_SOURCE_DIR}/Utils/ParamHandler)

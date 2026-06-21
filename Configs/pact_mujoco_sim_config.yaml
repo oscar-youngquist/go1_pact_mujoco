@@ -22,4 +22,4 @@ ctrl_config_file: 'pact_config.yaml'
 # ctrl_config_file: 'pos_config.yaml'
 
 # joystick device
-js_device: '/dev/input/js0'
+js_device: 'udp://26760'
