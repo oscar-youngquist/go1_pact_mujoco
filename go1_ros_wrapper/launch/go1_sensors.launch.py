@@ -48,36 +48,32 @@ def generate_launch_description():
         DeclareLaunchArgument('ntrip_username', default_value=env_or_empty('MACORS_USERNAME')),
         DeclareLaunchArgument('ntrip_password', default_value=env_or_empty('MACORS_PASSWORD')),
 
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(
-                PathJoinSubstitution([
-                    FindPackageShare('realsense2_camera'),
-                    'launch',
-                    'rs_launch.py',
-                ])
-            ),
+        Node(
+            package='realsense2_camera',
+            executable='realsense2_camera_node',
+            namespace=LaunchConfiguration('realsense_camera_namespace'),
+            name=LaunchConfiguration('realsense_camera_name'),
+            output='screen',
             condition=IfCondition(LaunchConfiguration('enable_realsense')),
-            launch_arguments={
-                'camera_namespace': LaunchConfiguration('realsense_camera_namespace'),
-                'camera_name': LaunchConfiguration('realsense_camera_name'),
+            parameters=[{
                 'serial_no': LaunchConfiguration('realsense_serial_no'),
                 'device_type': 'd435i',
-                'enable_depth': 'true',
-                'enable_color': LaunchConfiguration('realsense_enable_color'),
-                'enable_infra1': 'false',
-                'enable_infra2': 'false',
-                'enable_gyro': LaunchConfiguration('realsense_enable_imu'),
-                'enable_accel': LaunchConfiguration('realsense_enable_imu'),
-                'unite_imu_method': '2',
-                'enable_sync': 'false',
+                'enable_depth': True,
+                'enable_color': bool_parameter('realsense_enable_color'),
+                'enable_infra1': False,
+                'enable_infra2': False,
+                'enable_gyro': bool_parameter('realsense_enable_imu'),
+                'enable_accel': bool_parameter('realsense_enable_imu'),
+                'unite_imu_method': 2,
+                'enable_sync': False,
                 'depth_module.depth_profile': LaunchConfiguration('realsense_depth_profile'),
                 'rgb_camera.color_profile': LaunchConfiguration('realsense_color_profile'),
-                'align_depth.enable': 'false',
-                'pointcloud.enable': 'false',
-                'spatial_filter.enable': 'false',
-                'temporal_filter.enable': 'false',
-                'hole_filling_filter.enable': 'false',
-            }.items(),
+                'align_depth.enable': False,
+                'pointcloud.enable': False,
+                'spatial_filter.enable': False,
+                'temporal_filter.enable': False,
+                'hole_filling_filter.enable': False,
+            }],
         ),
 
         Node(
