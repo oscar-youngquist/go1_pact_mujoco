@@ -1,0 +1,6 @@
+go1_pact_controller:
+  ros__parameters:
+    control_rate_hz: 100.0
+    initial_mode: damping
+    damping_kd: 3.0
+    debug_commands: false

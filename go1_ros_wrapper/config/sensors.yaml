@@ -1,0 +1,28 @@
+sensors:
+  enable_realsense: true
+  enable_ellipse: true
+  use_ntrip: false
+
+realsense:
+  camera_namespace: /go1/sensors/realsense
+  camera_name: d435i
+  serial_no: "''"
+  depth_profile: 640,480,15
+  color_profile: 640,480,15
+  enable_color: true
+  enable_imu: false
+
+ellipse:
+  namespace: /go1/sensors/ellipse
+  port: /dev/ttyUSB0
+  baud: 921600
+  frame_id: ellipse_link
+  frequency: 400
+
+ntrip:
+  namespace: /go1/sensors/ellipse/ntrip_client
+  host: ''
+  port: 2101
+  mountpoint: ''
+  username: ''
+  password: ''

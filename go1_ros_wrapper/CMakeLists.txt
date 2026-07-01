@@ -8,6 +8,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 
 set(GO1_PACT_MUJOCO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/..")
 
@@ -32,6 +33,16 @@ if(NOT TORCH_ROOT)
   set(TORCH_ROOT "${GO1_PACT_MUJOCO_DIR}/3rd_parties/libtorch")
 endif()
 
+set(CUDA_ROOT "$ENV{CUDA_ROOT}" CACHE PATH "CUDA toolkit installation root")
+if(NOT CUDA_ROOT)
+  set(CUDA_ROOT "${GO1_PACT_MUJOCO_DIR}/3rd_parties/cuda-12.8")
+endif()
+
+set(GLFW_ROOT "$ENV{GLFW_ROOT}" CACHE PATH "GLFW installation root")
+if(NOT GLFW_ROOT)
+  set(GLFW_ROOT "${GO1_PACT_MUJOCO_DIR}/build")
+endif()
+
 option(BUILD_UNITREE_BRIDGE "Build the Unitree hardware bridge if its SDK is available" ON)
 option(BUILD_MUJOCO_SIM "Build the MuJoCo simulator if MuJoCo/GLFW are available" ON)
 option(BUILD_PACT_CONTROLLER "Build the PACT controller if its dependencies are available" ON)
@@ -45,6 +56,10 @@ list(APPEND GO1_INSTALL_TARGETS go1_pd_controller_node)
 add_executable(go1_udp_gamepad_node src/go1_udp_gamepad_node.cpp)
 ament_target_dependencies(go1_udp_gamepad_node rclcpp std_msgs)
 list(APPEND GO1_INSTALL_TARGETS go1_udp_gamepad_node)
+
+add_executable(go1_sensor_adapter_node src/go1_sensor_adapter_node.cpp)
+ament_target_dependencies(go1_sensor_adapter_node rclcpp sensor_msgs)
+list(APPEND GO1_INSTALL_TARGETS go1_sensor_adapter_node)
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64.*")
   set(UNITREE_ARCH amd64)
@@ -80,11 +95,16 @@ if(BUILD_MUJOCO_SIM)
     GLFW_INCLUDE_DIR
     GLFW/glfw3.h
     PATHS
-      "${GO1_PACT_MUJOCO_DIR}/build/_deps/glfw3-src/include"
+      "${GLFW_ROOT}/_deps/glfw3-src/include"
+      "${GLFW_ROOT}/include"
       /usr/include
       /usr/local/include
   )
-  find_library(GLFW_LIB NAMES glfw glfw3)
+  if(EXISTS "${GLFW_ROOT}/lib/libglfw3.a")
+    set(GLFW_LIB "${GLFW_ROOT}/lib/libglfw3.a")
+  else()
+    find_library(GLFW_LIB NAMES glfw3 glfw)
+  endif()
 
   if(MUJOCO_LIB AND EXISTS "${MUJOCO_DIR}/include/mujoco/mujoco.h" AND GLFW_INCLUDE_DIR AND GLFW_LIB)
     find_package(OpenGL QUIET)
@@ -108,7 +128,7 @@ if(BUILD_MUJOCO_SIM)
         BUILD_RPATH "${MUJOCO_BUILD_LIB_DIR}"
         INSTALL_RPATH "${MUJOCO_BUILD_LIB_DIR}"
       )
-      ament_target_dependencies(go1_mujoco_sim_node rclcpp sensor_msgs std_msgs)
+      ament_target_dependencies(go1_mujoco_sim_node rclcpp sensor_msgs std_msgs nav_msgs)
       list(APPEND GO1_INSTALL_TARGETS go1_mujoco_sim_node)
     else()
       message(WARNING "Skipping go1_mujoco_sim_node: OpenGL or X11 was not found.")
@@ -119,8 +139,18 @@ if(BUILD_MUJOCO_SIM)
 endif()
 
 if(BUILD_PACT_CONTROLLER)
-  find_package(Torch QUIET PATHS "${TORCH_ROOT}")
   set(PARAM_HANDLER_DIR "${GO1_PACT_MUJOCO_DIR}/Utils/ParamHandler")
+
+  if(EXISTS "${CUDA_ROOT}")
+    set(CUDAToolkit_ROOT "${CUDA_ROOT}")
+    set(CUDA_TOOLKIT_ROOT_DIR "${CUDA_ROOT}")
+    if(EXISTS "${CUDA_ROOT}/bin/nvcc")
+      set(CMAKE_CUDA_COMPILER "${CUDA_ROOT}/bin/nvcc")
+    endif()
+  endif()
+
+  list(PREPEND CMAKE_PREFIX_PATH "${TORCH_ROOT}")
+  find_package(Torch QUIET)
 
   if(Torch_FOUND
       AND EXISTS "${GO1_DEPLOY_DIR}/include/pact_controller.hpp"
@@ -145,8 +175,11 @@ if(BUILD_PACT_CONTROLLER)
     )
     target_link_libraries(go1_pact_controller_node ${TORCH_LIBRARIES} daros_yaml-cpp)
     set_target_properties(go1_pact_controller_node PROPERTIES
-      BUILD_RPATH "${TORCH_ROOT}/lib"
-      INSTALL_RPATH "${TORCH_ROOT}/lib"
+      BUILD_RPATH "${TORCH_ROOT}/lib;${CUDA_ROOT}/lib64"
+      INSTALL_RPATH "$ORIGIN;${TORCH_ROOT}/lib;${CUDA_ROOT}/lib64"
+    )
+    install(TARGETS daros_yaml-cpp
+      LIBRARY DESTINATION lib/${PROJECT_NAME}
     )
     ament_target_dependencies(go1_pact_controller_node rclcpp sensor_msgs std_msgs)
     list(APPEND GO1_INSTALL_TARGETS go1_pact_controller_node)
@@ -164,7 +197,7 @@ install(PROGRAMS
   DESTINATION lib/${PROJECT_NAME}
 )
 
-install(DIRECTORY launch
+install(DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME}
   PATTERN "__pycache__" EXCLUDE
 )

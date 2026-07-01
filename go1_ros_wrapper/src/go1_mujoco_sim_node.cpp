@@ -7,6 +7,7 @@
 #include <cmath>
 #include <memory>
 #include <mutex>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -15,7 +16,12 @@
 #include <GLFW/glfw3.h>
 #include <mujoco/mujoco.h>
 #include <rclcpp/rclcpp.hpp>
+#include <nav_msgs/msg/odometry.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
+#include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/imu.hpp>
+#include <sensor_msgs/msg/nav_sat_fix.hpp>
+#include <sensor_msgs/msg/nav_sat_status.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
 
@@ -61,15 +67,42 @@ public:
     render_period_ = periodFromHz(declare_parameter<double>("render_rate_hz", 30.0), 30.0);
     viewer_width_ = declare_parameter<int>("viewer_width", 1200);
     viewer_height_ = declare_parameter<int>("viewer_height", 900);
+    enable_sim_camera_ = declare_parameter<bool>("enable_sim_camera", true);
+    camera_name_ = declare_parameter<std::string>("camera_name", "front_camera");
+    camera_rate_hz_ = declare_parameter<double>("camera_rate_hz", 15.0);
+    camera_width_ = declare_parameter<int>("camera_width", 640);
+    camera_height_ = declare_parameter<int>("camera_height", 480);
+    camera_frame_id_ = declare_parameter<std::string>(
+        "camera_frame_id", "go1_camera_color_optical_frame");
+    enable_sim_gps_ = declare_parameter<bool>("enable_sim_gps", true);
+    gps_rate_hz_ = declare_parameter<double>("gps_rate_hz", 10.0);
+    gps_frame_id_ = declare_parameter<std::string>("gps_frame_id", "go1_gps_link");
+    gps_origin_latitude_ = declare_parameter<double>("gps_origin_latitude", 42.2808);
+    gps_origin_longitude_ = declare_parameter<double>("gps_origin_longitude", -83.7430);
+    gps_origin_altitude_ = declare_parameter<double>("gps_origin_altitude", 250.0);
+    gps_horizontal_stddev_m_ = declare_parameter<double>("gps_horizontal_stddev_m", 0.8);
+    gps_vertical_stddev_m_ = declare_parameter<double>("gps_vertical_stddev_m", 1.5);
 
     loadModel();
     initializeJointMetadata();
     initializeSensorMetadata();
-    startViewerThread();
 
     joint_state_pub_ = create_publisher<sensor_msgs::msg::JointState>("joint_states", 10);
     imu_pub_ = create_publisher<sensor_msgs::msg::Imu>("imu", 10);
     low_cmd_echo_pub_ = create_publisher<std_msgs::msg::Float32MultiArray>("low_cmd_echo", 10);
+    if (enable_sim_camera_) {
+      camera_pub_ = create_publisher<sensor_msgs::msg::Image>(
+        "camera/color/image_raw", rclcpp::SensorDataQoS());
+      camera_info_pub_ = create_publisher<sensor_msgs::msg::CameraInfo>(
+        "camera/color/camera_info", rclcpp::SensorDataQoS());
+    }
+    if (enable_sim_gps_) {
+      gps_pub_ = create_publisher<sensor_msgs::msg::NavSatFix>(
+        "gps/fix", rclcpp::SensorDataQoS());
+    }
+    ground_truth_pub_ = create_publisher<nav_msgs::msg::Odometry>("ground_truth/odom", 10);
+
+    startRenderThread();
 
     low_cmd_sub_ = create_subscription<std_msgs::msg::Float32MultiArray>(
         "low_cmd", 10,
@@ -89,10 +122,20 @@ public:
           publishState();
         });
 
-
+    if (enable_sim_gps_) {
+      gps_timer_ = create_wall_timer(
+          periodFromHz(gps_rate_hz_, 10.0),
+          [this]() {
+            publishGps();
+          });
+    }
 
     RCLCPP_INFO(get_logger(), "Loaded MuJoCo model: %s", model_path_.c_str());
     RCLCPP_INFO(get_logger(), "MuJoCo viewer: %s", enable_viewer_ ? "enabled" : "disabled");
+    RCLCPP_INFO(
+        get_logger(), "Simulated RGB camera: %s at %.1f Hz; GPS: %s at %.1f Hz",
+        enable_sim_camera_ ? "enabled" : "disabled", camera_rate_hz_,
+        enable_sim_gps_ ? "enabled" : "disabled", gps_rate_hz_);
     RCLCPP_INFO(
         get_logger(),
         "Simulation command topic expects 60 floats: q[12], dq[12], kp[12], kd[12], tau[12].");
@@ -157,11 +200,23 @@ private:
   {
     accel_sensor_id_ = mj_name2id(model_, mjOBJ_SENSOR, "accelerometer");
     gyro_sensor_id_ = mj_name2id(model_, mjOBJ_SENSOR, "gyro");
+    if (enable_sim_camera_) {
+      camera_id_ = mj_name2id(model_, mjOBJ_CAMERA, camera_name_.c_str());
+      if (camera_id_ < 0) {
+        throw std::runtime_error("MuJoCo camera not found: " + camera_name_);
+      }
+      if (camera_width_ <= 0 || camera_height_ <= 0 ||
+          camera_width_ > model_->vis.global.offwidth ||
+          camera_height_ > model_->vis.global.offheight) {
+        throw std::runtime_error(
+                "Camera dimensions must be positive and no larger than MuJoCo offscreen dimensions");
+      }
+    }
   }
 
-  void startViewerThread()
+  void startRenderThread()
   {
-    if (!enable_viewer_) {
+    if (!enable_viewer_ && !enable_sim_camera_) {
       return;
     }
 
@@ -181,6 +236,7 @@ private:
     glfw_initialized_ = true;
 
     glfwWindowHint(GLFW_SAMPLES, 4);
+    glfwWindowHint(GLFW_VISIBLE, enable_viewer_ ? GLFW_TRUE : GLFW_FALSE);
     window_ = glfwCreateWindow(
         viewer_width_, viewer_height_, "Go1 MuJoCo ROS Simulation", nullptr, nullptr);
     if (!window_) {
@@ -210,11 +266,20 @@ private:
     mjr_makeContext(model_, &context_, mjFONTSCALE_150);
     viewer_initialized_ = true;
 
+    const auto camera_period = periodFromHz(camera_rate_hz_, 15.0);
+    auto next_camera_frame = std::chrono::steady_clock::now();
+
     while (viewer_running_.load()) {
-      if (!renderViewerFrame()) {
+      if (enable_viewer_ && !renderViewerFrame()) {
         break;
       }
-      std::this_thread::sleep_for(render_period_);
+      const auto current_time = std::chrono::steady_clock::now();
+      if (enable_sim_camera_ && current_time >= next_camera_frame) {
+        renderCameraFrame();
+        next_camera_frame = current_time + camera_period;
+      }
+      glfwPollEvents();
+      std::this_thread::sleep_for(enable_viewer_ ? render_period_ : 1ms);
     }
 
     freeViewerResources();
@@ -356,8 +421,121 @@ private:
         overlay.c_str(), "close window to stop node", &context_);
 
     glfwSwapBuffers(window_);
-    glfwPollEvents();
     return true;
+  }
+
+  void renderCameraFrame()
+  {
+    mjvCamera sensor_camera;
+    mjv_defaultCamera(&sensor_camera);
+    sensor_camera.type = mjCAMERA_FIXED;
+    sensor_camera.fixedcamid = camera_id_;
+
+    mjr_setBuffer(mjFB_OFFSCREEN, &context_);
+    const mjrRect viewport{0, 0, camera_width_, camera_height_};
+    {
+      std::lock_guard<std::mutex> sim_lock(sim_mutex_);
+      mjv_updateScene(
+          model_, data_, &option_, nullptr, &sensor_camera, mjCAT_ALL, &scene_);
+    }
+    mjr_render(viewport, &scene_, &context_);
+
+    std::vector<unsigned char> bottom_up(
+        static_cast<size_t>(camera_width_ * camera_height_ * 3));
+    mjr_readPixels(bottom_up.data(), nullptr, viewport, &context_);
+
+    sensor_msgs::msg::Image image;
+    image.header.stamp = now();
+    image.header.frame_id = camera_frame_id_;
+    image.height = static_cast<uint32_t>(camera_height_);
+    image.width = static_cast<uint32_t>(camera_width_);
+    image.encoding = "rgb8";
+    image.is_bigendian = false;
+    image.step = static_cast<sensor_msgs::msg::Image::_step_type>(camera_width_ * 3);
+    image.data.resize(bottom_up.size());
+    const size_t row_bytes = static_cast<size_t>(camera_width_ * 3);
+    for (int row = 0; row < camera_height_; ++row) {
+      std::copy_n(
+          bottom_up.data() + static_cast<size_t>(camera_height_ - 1 - row) * row_bytes,
+          row_bytes, image.data.data() + static_cast<size_t>(row) * row_bytes);
+    }
+
+    sensor_msgs::msg::CameraInfo info;
+    info.header = image.header;
+    info.height = image.height;
+    info.width = image.width;
+    info.distortion_model = "plumb_bob";
+    info.d.assign(5, 0.0);
+    const double fovy_rad = model_->cam_fovy[camera_id_] * mjPI / 180.0;
+    const double fy = 0.5 * camera_height_ / std::tan(0.5 * fovy_rad);
+    const double fx = fy;
+    const double cx = (camera_width_ - 1) * 0.5;
+    const double cy = (camera_height_ - 1) * 0.5;
+    info.k = {fx, 0.0, cx, 0.0, fy, cy, 0.0, 0.0, 1.0};
+    info.r = {1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0};
+    info.p = {fx, 0.0, cx, 0.0, 0.0, fy, cy, 0.0, 0.0, 0.0, 1.0, 0.0};
+
+    camera_pub_->publish(std::move(image));
+    camera_info_pub_->publish(std::move(info));
+    if (enable_viewer_) {
+      mjr_setBuffer(mjFB_WINDOW, &context_);
+    }
+  }
+
+  void publishGps()
+  {
+    constexpr double kEarthRadiusM = 6378137.0;
+    constexpr double kDegreesPerRadian = 180.0 / mjPI;
+
+    std::lock_guard<std::mutex> sim_lock(sim_mutex_);
+    const auto stamp = now();
+    const double east = data_->qpos[0];
+    const double north = data_->qpos[1];
+    const double up = data_->qpos[2];
+
+    std::normal_distribution<double> horizontal_noise(0.0, gps_horizontal_stddev_m_);
+    std::normal_distribution<double> vertical_noise(0.0, gps_vertical_stddev_m_);
+    const double noisy_east = east + horizontal_noise(random_engine_);
+    const double noisy_north = north + horizontal_noise(random_engine_);
+    const double noisy_up = up + vertical_noise(random_engine_);
+
+    sensor_msgs::msg::NavSatFix fix;
+    fix.header.stamp = stamp;
+    fix.header.frame_id = gps_frame_id_;
+    fix.status.status = sensor_msgs::msg::NavSatStatus::STATUS_FIX;
+    fix.status.service = sensor_msgs::msg::NavSatStatus::SERVICE_GPS;
+    fix.latitude = gps_origin_latitude_ +
+      noisy_north / kEarthRadiusM * kDegreesPerRadian;
+    const double origin_latitude_rad = gps_origin_latitude_ / kDegreesPerRadian;
+    fix.longitude = gps_origin_longitude_ +
+      noisy_east / (kEarthRadiusM * std::cos(origin_latitude_rad)) * kDegreesPerRadian;
+    fix.altitude = gps_origin_altitude_ + noisy_up;
+    fix.position_covariance = {
+      gps_horizontal_stddev_m_ * gps_horizontal_stddev_m_, 0.0, 0.0,
+      0.0, gps_horizontal_stddev_m_ * gps_horizontal_stddev_m_, 0.0,
+      0.0, 0.0, gps_vertical_stddev_m_ * gps_vertical_stddev_m_};
+    fix.position_covariance_type =
+      sensor_msgs::msg::NavSatFix::COVARIANCE_TYPE_DIAGONAL_KNOWN;
+    gps_pub_->publish(fix);
+
+    nav_msgs::msg::Odometry odom;
+    odom.header.stamp = stamp;
+    odom.header.frame_id = "map";
+    odom.child_frame_id = "base_link";
+    odom.pose.pose.position.x = east;
+    odom.pose.pose.position.y = north;
+    odom.pose.pose.position.z = up;
+    odom.pose.pose.orientation.w = data_->qpos[3];
+    odom.pose.pose.orientation.x = data_->qpos[4];
+    odom.pose.pose.orientation.y = data_->qpos[5];
+    odom.pose.pose.orientation.z = data_->qpos[6];
+    odom.twist.twist.linear.x = data_->qvel[0];
+    odom.twist.twist.linear.y = data_->qvel[1];
+    odom.twist.twist.linear.z = data_->qvel[2];
+    odom.twist.twist.angular.x = data_->qvel[3];
+    odom.twist.twist.angular.y = data_->qvel[4];
+    odom.twist.twist.angular.z = data_->qvel[5];
+    ground_truth_pub_->publish(odom);
   }
 
   void shutdownViewer()
@@ -394,6 +572,24 @@ private:
   std::vector<int> joint_qvel_addr_;
   int accel_sensor_id_ = -1;
   int gyro_sensor_id_ = -1;
+  int camera_id_ = -1;
+
+  bool enable_sim_camera_ = true;
+  std::string camera_name_ = "front_camera";
+  double camera_rate_hz_ = 15.0;
+  int camera_width_ = 640;
+  int camera_height_ = 480;
+  std::string camera_frame_id_ = "go1_camera_color_optical_frame";
+
+  bool enable_sim_gps_ = true;
+  double gps_rate_hz_ = 10.0;
+  std::string gps_frame_id_ = "go1_gps_link";
+  double gps_origin_latitude_ = 42.2808;
+  double gps_origin_longitude_ = -83.7430;
+  double gps_origin_altitude_ = 250.0;
+  double gps_horizontal_stddev_m_ = 0.8;
+  double gps_vertical_stddev_m_ = 1.5;
+  std::mt19937 random_engine_{std::random_device{}()};
 
   std::array<double, kNumJoints> q_des_{};
   std::array<double, kNumJoints> dq_des_{};
@@ -425,9 +621,14 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_pub_;
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
   rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr low_cmd_echo_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr camera_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr gps_pub_;
+  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr ground_truth_pub_;
   rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr low_cmd_sub_;
   rclcpp::TimerBase::SharedPtr sim_timer_;
   rclcpp::TimerBase::SharedPtr publish_timer_;
+  rclcpp::TimerBase::SharedPtr gps_timer_;
 };
 
 int main(int argc, char ** argv)

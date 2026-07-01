@@ -1,0 +1,12 @@
+go1_unitree_bridge:
+  ros__parameters:
+    robot_ip: 192.168.123.10
+    local_port: 8090
+    robot_port: 8007
+    udp_rate_hz: 500.0
+    publish_rate_hz: 100.0
+    command_timeout_s: 0.2
+    power_protect_level: 9
+    send_damping_on_timeout: true
+    timeout_damping_kd: 3.0
+    send_commands: false

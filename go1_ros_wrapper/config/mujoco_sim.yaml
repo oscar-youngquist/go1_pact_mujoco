@@ -1,0 +1,24 @@
+go1_mujoco_sim:
+  ros__parameters:
+    sim_rate_hz: 500.0
+    publish_rate_hz: 100.0
+    command_timeout_s: 0.2
+    publish_when_paused: true
+    enable_viewer: true
+    render_rate_hz: 60.0
+    viewer_width: 1200
+    viewer_height: 900
+    enable_sim_camera: true
+    camera_name: front_camera
+    camera_rate_hz: 15.0
+    camera_width: 640
+    camera_height: 480
+    camera_frame_id: go1_camera_color_optical_frame
+    enable_sim_gps: true
+    gps_rate_hz: 10.0
+    gps_frame_id: go1_gps_link
+    gps_origin_latitude: 42.2808
+    gps_origin_longitude: -83.7430
+    gps_origin_altitude: 250.0
+    gps_horizontal_stddev_m: 0.8
+    gps_vertical_stddev_m: 1.5

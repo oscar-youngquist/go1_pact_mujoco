@@ -1,0 +1,10 @@
+go1_sensor_adapter:
+  ros__parameters:
+    enable_camera: true
+    enable_depth: true
+    enable_gps: true
+    color_image_input: /go1/sensors/realsense/d435i/color/image_raw
+    color_info_input: /go1/sensors/realsense/d435i/color/camera_info
+    depth_image_input: /go1/sensors/realsense/d435i/depth/image_rect_raw
+    depth_info_input: /go1/sensors/realsense/d435i/depth/camera_info
+    gps_input: /go1/sensors/ellipse/imu/nav_sat_fix

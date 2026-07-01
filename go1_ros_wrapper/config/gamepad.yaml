@@ -1,0 +1,5 @@
+go1_udp_gamepad:
+  ros__parameters:
+    port: 26760
+    poll_rate_hz: 200.0
+    publish_rate_hz: 100.0
