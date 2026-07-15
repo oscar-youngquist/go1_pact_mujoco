@@ -11,6 +11,7 @@
 #include <vector>
 
 #include <rclcpp/rclcpp.hpp>
+#include <geometry_msgs/msg/twist_stamped.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
@@ -86,10 +87,12 @@ public:
     damping_kd_ = declare_parameter<double>("damping_kd", 3.0);
     debug_commands_ = declare_parameter<bool>("debug_commands", false);
     mode_ = declare_parameter<std::string>("initial_mode", "damping");
+    velocity_command_frame_id_ = declare_parameter<std::string>("velocity_command_frame_id", "base_link");
 
     initializeController();
 
     low_cmd_pub_ = create_publisher<std_msgs::msg::Float32MultiArray>("low_cmd", 10);
+    velocity_command_pub_ = create_publisher<geometry_msgs::msg::TwistStamped>("velocity_command", 10);
 
     joint_state_sub_ = create_subscription<sensor_msgs::msg::JointState>(
         "joint_states", 10,
@@ -129,6 +132,19 @@ private:
   {
     ctrl_ = std::make_unique<PACTController>(config_path_);
     ctrl_->loadParam();
+
+    const PACTRLCfg cfg(config_path_);
+    if (cfg.command_limit_max_abs.size() >= 3) {
+      gamepad_.setCommandLimits({
+          cfg.command_limit_max_abs[0],
+          cfg.command_limit_max_abs[1],
+          cfg.command_limit_max_abs[2],
+      });
+    } else {
+      RCLCPP_WARN(
+          get_logger(),
+          "PACT config command_limit_max_abs has fewer than 3 values; using default gamepad command limits.");
+    }
 
     const auto old_cwd = std::filesystem::current_path();
     std::filesystem::current_path(mujoco_project_dir_);
@@ -329,6 +345,7 @@ private:
     }
 
     ctrl_->GetInput(robot_interface_, gamepad_);
+    publishVelocityCommand();
 
     if (mode_ == "sit") {
       state_machine_.Sitting(*ctrl_);
@@ -377,9 +394,24 @@ private:
     low_cmd_pub_->publish(msg);
   }
 
+  void publishVelocityCommand()
+  {
+    geometry_msgs::msg::TwistStamped msg;
+    msg.header.stamp = get_clock()->now();
+    msg.header.frame_id = velocity_command_frame_id_;
+    msg.twist.linear.x = ctrl_->cmd[0];
+    msg.twist.linear.y = ctrl_->cmd[1];
+    msg.twist.linear.z = 0.0;
+    msg.twist.angular.x = 0.0;
+    msg.twist.angular.y = 0.0;
+    msg.twist.angular.z = ctrl_->cmd[2];
+    velocity_command_pub_->publish(msg);
+  }
+
   std::string config_path_;
   std::string mujoco_project_dir_;
   std::string mode_ = "damping";
+  std::string velocity_command_frame_id_ = "base_link";
   float damping_kd_ = 3.0f;
   bool debug_commands_ = false;
   size_t debug_counter_ = 0;
@@ -395,6 +427,7 @@ private:
   std::unique_ptr<PACTController> ctrl_;
 
   rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr low_cmd_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_command_pub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
   rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr gamepad_sub_;

@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
@@ -56,6 +57,10 @@ list(APPEND GO1_INSTALL_TARGETS go1_pd_controller_node)
 add_executable(go1_udp_gamepad_node src/go1_udp_gamepad_node.cpp)
 ament_target_dependencies(go1_udp_gamepad_node rclcpp std_msgs)
 list(APPEND GO1_INSTALL_TARGETS go1_udp_gamepad_node)
+
+add_executable(go1_joy_gamepad_node src/go1_joy_gamepad_node.cpp)
+ament_target_dependencies(go1_joy_gamepad_node rclcpp sensor_msgs std_msgs)
+list(APPEND GO1_INSTALL_TARGETS go1_joy_gamepad_node)
 
 add_executable(go1_sensor_adapter_node src/go1_sensor_adapter_node.cpp)
 ament_target_dependencies(go1_sensor_adapter_node rclcpp sensor_msgs)
@@ -181,7 +186,7 @@ if(BUILD_PACT_CONTROLLER)
     install(TARGETS daros_yaml-cpp
       LIBRARY DESTINATION lib/${PROJECT_NAME}
     )
-    ament_target_dependencies(go1_pact_controller_node rclcpp sensor_msgs std_msgs)
+    ament_target_dependencies(go1_pact_controller_node rclcpp geometry_msgs sensor_msgs std_msgs)
     list(APPEND GO1_INSTALL_TARGETS go1_pact_controller_node)
   else()
     message(WARNING "Skipping go1_pact_controller_node: Torch, go1_pact_deploy, Unitree headers, or ParamHandler are unavailable.")
@@ -194,6 +199,7 @@ install(TARGETS ${GO1_INSTALL_TARGETS}
 
 install(PROGRAMS
   scripts/go1_training_recorder.py
+  scripts/go1_generate_master_file.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

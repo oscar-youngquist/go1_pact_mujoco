@@ -58,6 +58,13 @@ def physical_sensor_condition():
     return IfCondition(LaunchConfiguration('start_sensors'))
 
 
+def gamepad_backend_condition(backend):
+    return IfCondition(PythonExpression([
+        "'", LaunchConfiguration('start_gamepad'), "' == 'true' and '",
+        LaunchConfiguration('gamepad_backend'), f"' == '{backend}'",
+    ]))
+
+
 def simulated_sensor_parameter(enable_argument):
     return ParameterValue(
         PythonExpression([
@@ -79,6 +86,7 @@ def generate_launch_description():
         DeclareLaunchArgument('backend', default_value='sim', description='sim or hardware'),
         DeclareLaunchArgument('start_controller', default_value='true'),
         DeclareLaunchArgument('start_gamepad', default_value='true'),
+        DeclareLaunchArgument('gamepad_backend', default_value='usb', description='usb, udp, or none'),
         DeclareLaunchArgument(
             'start_sensors',
             default_value='false',
@@ -206,11 +214,32 @@ def generate_launch_description():
             ],
         ),
         Node(
+            package='joy',
+            executable='joy_node',
+            name='joy_node',
+            output='screen',
+            condition=gamepad_backend_condition('usb'),
+            parameters=[LaunchConfiguration('gamepad_config')],
+            remappings=[('joy', '/joy')],
+        ),
+        Node(
+            package='go1_ros_wrapper',
+            executable='go1_joy_gamepad_node',
+            name='go1_joy_gamepad',
+            output='screen',
+            condition=gamepad_backend_condition('usb'),
+            parameters=[LaunchConfiguration('gamepad_config')],
+            remappings=[
+                ('joy', '/joy'),
+                ('gamepad', '/go1/gamepad'),
+            ],
+        ),
+        Node(
             package='go1_ros_wrapper',
             executable='go1_udp_gamepad_node',
             name='go1_udp_gamepad',
             output='screen',
-            condition=IfCondition(LaunchConfiguration('start_gamepad')),
+            condition=gamepad_backend_condition('udp'),
             parameters=[LaunchConfiguration('gamepad_config')],
             remappings=[('gamepad', '/go1/gamepad')],
         ),
@@ -234,6 +263,7 @@ def generate_launch_description():
                 ('imu', '/go1/imu'),
                 ('gamepad', '/go1/gamepad'),
                 ('controller_mode', '/go1/controller_mode'),
+                ('velocity_command', '/go1/velocity_command'),
                 ('low_cmd', '/go1/low_cmd'),
             ],
         ),

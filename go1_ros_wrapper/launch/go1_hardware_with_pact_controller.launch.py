@@ -92,6 +92,7 @@ def generate_launch_description():
                 ('imu', '/go1/imu'),
                 ('gamepad', '/go1/gamepad'),
                 ('controller_mode', '/go1/controller_mode'),
+                ('velocity_command', '/go1/velocity_command'),
                 ('low_cmd', '/go1/low_cmd'),
             ],
         ),
