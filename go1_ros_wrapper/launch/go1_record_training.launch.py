@@ -26,6 +26,11 @@ def generate_launch_description():
             'ellipse_baud': LaunchConfiguration('ellipse_baud'),
             'realsense_enable_color': LaunchConfiguration('realsense_enable_color'),
             'realsense_enable_imu': LaunchConfiguration('realsense_enable_imu'),
+            'ntrip_reconnect_attempt_max': LaunchConfiguration('ntrip_reconnect_attempt_max'),
+            'ntrip_reconnect_attempt_wait_seconds': LaunchConfiguration(
+                'ntrip_reconnect_attempt_wait_seconds'
+            ),
+            'ntrip_rtcm_timeout_seconds': LaunchConfiguration('ntrip_rtcm_timeout_seconds'),
         }.items(),
     )
 
@@ -97,6 +102,9 @@ def generate_launch_description():
         DeclareLaunchArgument('enable_realsense', default_value='true'),
         DeclareLaunchArgument('enable_ellipse', default_value='true'),
         DeclareLaunchArgument('use_ntrip', default_value='false'),
+        DeclareLaunchArgument('ntrip_reconnect_attempt_max', default_value='120'),
+        DeclareLaunchArgument('ntrip_reconnect_attempt_wait_seconds', default_value='5'),
+        DeclareLaunchArgument('ntrip_rtcm_timeout_seconds', default_value='10'),
         DeclareLaunchArgument('ellipse_port', default_value='/dev/ttyUSB0'),
         DeclareLaunchArgument('ellipse_baud', default_value='921600'),
         DeclareLaunchArgument('realsense_enable_color', default_value='false'),

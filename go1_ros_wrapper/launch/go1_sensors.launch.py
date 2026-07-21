@@ -1,13 +1,11 @@
 import os
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
-from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
-from launch_ros.substitutions import FindPackageShare
 
 
 def env_or_empty(name):
@@ -42,11 +40,20 @@ def generate_launch_description():
         DeclareLaunchArgument('ellipse_frame_id', default_value='ellipse_link'),
 
         DeclareLaunchArgument('ntrip_namespace', default_value='/go1/sensors/ellipse/ntrip_client'),
-        DeclareLaunchArgument('ntrip_host', default_value=env_or_empty('MACORS_HOST')),
-        DeclareLaunchArgument('ntrip_port', default_value=os.environ.get('MACORS_PORT', '2101')),
-        DeclareLaunchArgument('ntrip_mountpoint', default_value=env_or_empty('MACORS_MOUNTPOINT')),
+        DeclareLaunchArgument(
+            'ntrip_host',
+            default_value=os.environ.get('MACORS_HOST', 'macorsrtk.massdot.state.ma.us'),
+        ),
+        DeclareLaunchArgument('ntrip_port', default_value=os.environ.get('MACORS_PORT', '10000')),
+        DeclareLaunchArgument(
+            'ntrip_mountpoint',
+            default_value=os.environ.get('MACORS_MOUNTPOINT', 'RTCM3_MAX'),
+        ),
         DeclareLaunchArgument('ntrip_username', default_value=env_or_empty('MACORS_USERNAME')),
         DeclareLaunchArgument('ntrip_password', default_value=env_or_empty('MACORS_PASSWORD')),
+        DeclareLaunchArgument('ntrip_reconnect_attempt_max', default_value='120'),
+        DeclareLaunchArgument('ntrip_reconnect_attempt_wait_seconds', default_value='5'),
+        DeclareLaunchArgument('ntrip_rtcm_timeout_seconds', default_value='10'),
 
         Node(
             package='realsense2_camera',
@@ -127,24 +134,28 @@ def generate_launch_description():
             }],
         ),
 
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(
-                PathJoinSubstitution([
-                    FindPackageShare('ntrip_client'),
-                    'ntrip_client_launch.py',
-                ])
-            ),
+        Node(
+            package='ntrip_client',
+            executable='ntrip_ros.py',
+            namespace=LaunchConfiguration('ntrip_namespace'),
+            name='ntrip_client',
+            output='screen',
             condition=IfCondition(LaunchConfiguration('use_ntrip')),
-            launch_arguments={
-                'namespace': LaunchConfiguration('ntrip_namespace'),
-                'node_name': 'ntrip_client',
+            respawn=True,
+            respawn_delay=2.0,
+            parameters=[{
                 'host': LaunchConfiguration('ntrip_host'),
-                'port': LaunchConfiguration('ntrip_port'),
+                'port': int_parameter('ntrip_port'),
                 'mountpoint': LaunchConfiguration('ntrip_mountpoint'),
-                'authenticate': 'true',
+                'authenticate': True,
                 'username': LaunchConfiguration('ntrip_username'),
                 'password': LaunchConfiguration('ntrip_password'),
                 'rtcm_message_package': 'rtcm_msgs',
-            }.items(),
+                'reconnect_attempt_max': int_parameter('ntrip_reconnect_attempt_max'),
+                'reconnect_attempt_wait_seconds': int_parameter(
+                    'ntrip_reconnect_attempt_wait_seconds'
+                ),
+                'rtcm_timeout_seconds': int_parameter('ntrip_rtcm_timeout_seconds'),
+            }],
         ),
     ])

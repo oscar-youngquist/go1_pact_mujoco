@@ -21,8 +21,11 @@ ellipse:
 
 ntrip:
   namespace: /go1/sensors/ellipse/ntrip_client
-  host: ''
-  port: 2101
-  mountpoint: ''
+  host: macorsrtk.massdot.state.ma.us
+  port: 10000
+  mountpoint: RTCM3_MAX
   username: ''
   password: ''
+  reconnect_attempt_max: 120
+  reconnect_attempt_wait_seconds: 5
+  rtcm_timeout_seconds: 10

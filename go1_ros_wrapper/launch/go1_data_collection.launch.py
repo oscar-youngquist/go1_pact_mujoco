@@ -42,6 +42,16 @@ def yaml_value(config, section, key, default):
     return str(value)
 
 
+def env_or_yaml(config, section, key, environment_name, default):
+    environment_value = os.environ.get(environment_name)
+    if environment_value is not None and environment_value != '':
+        return environment_value
+    value = config.get(section, {}).get(key)
+    if value is not None and value != '':
+        return str(value)
+    return str(default)
+
+
 def bool_parameter(name):
     return ParameterValue(LaunchConfiguration(name), value_type=bool)
 
@@ -164,11 +174,55 @@ def generate_launch_description():
             'ntrip_namespace',
             default_value=yaml_value(sensors_config, 'ntrip', 'namespace', '/go1/sensors/ellipse/ntrip_client'),
         ),
-        DeclareLaunchArgument('ntrip_host', default_value=yaml_value(sensors_config, 'ntrip', 'host', '')),
-        DeclareLaunchArgument('ntrip_port', default_value=yaml_value(sensors_config, 'ntrip', 'port', 2101)),
-        DeclareLaunchArgument('ntrip_mountpoint', default_value=yaml_value(sensors_config, 'ntrip', 'mountpoint', '')),
-        DeclareLaunchArgument('ntrip_username', default_value=yaml_value(sensors_config, 'ntrip', 'username', '')),
-        DeclareLaunchArgument('ntrip_password', default_value=yaml_value(sensors_config, 'ntrip', 'password', '')),
+        DeclareLaunchArgument(
+            'ntrip_host',
+            default_value=env_or_yaml(
+                sensors_config,
+                'ntrip',
+                'host',
+                'MACORS_HOST',
+                'macorsrtk.massdot.state.ma.us',
+            ),
+        ),
+        DeclareLaunchArgument(
+            'ntrip_port',
+            default_value=env_or_yaml(sensors_config, 'ntrip', 'port', 'MACORS_PORT', 10000),
+        ),
+        DeclareLaunchArgument(
+            'ntrip_mountpoint',
+            default_value=env_or_yaml(
+                sensors_config,
+                'ntrip',
+                'mountpoint',
+                'MACORS_MOUNTPOINT',
+                'RTCM3_MAX',
+            ),
+        ),
+        DeclareLaunchArgument(
+            'ntrip_username',
+            default_value=env_or_yaml(sensors_config, 'ntrip', 'username', 'MACORS_USERNAME', ''),
+        ),
+        DeclareLaunchArgument(
+            'ntrip_password',
+            default_value=env_or_yaml(sensors_config, 'ntrip', 'password', 'MACORS_PASSWORD', ''),
+        ),
+        DeclareLaunchArgument(
+            'ntrip_reconnect_attempt_max',
+            default_value=yaml_value(sensors_config, 'ntrip', 'reconnect_attempt_max', 120),
+        ),
+        DeclareLaunchArgument(
+            'ntrip_reconnect_attempt_wait_seconds',
+            default_value=yaml_value(
+                sensors_config,
+                'ntrip',
+                'reconnect_attempt_wait_seconds',
+                5,
+            ),
+        ),
+        DeclareLaunchArgument(
+            'ntrip_rtcm_timeout_seconds',
+            default_value=yaml_value(sensors_config, 'ntrip', 'rtcm_timeout_seconds', 10),
+        ),
 
         Node(
             package='go1_ros_wrapper',
@@ -318,6 +372,11 @@ def generate_launch_description():
                 'ntrip_mountpoint': LaunchConfiguration('ntrip_mountpoint'),
                 'ntrip_username': LaunchConfiguration('ntrip_username'),
                 'ntrip_password': LaunchConfiguration('ntrip_password'),
+                'ntrip_reconnect_attempt_max': LaunchConfiguration('ntrip_reconnect_attempt_max'),
+                'ntrip_reconnect_attempt_wait_seconds': LaunchConfiguration(
+                    'ntrip_reconnect_attempt_wait_seconds'
+                ),
+                'ntrip_rtcm_timeout_seconds': LaunchConfiguration('ntrip_rtcm_timeout_seconds'),
             }.items(),
         ),
     ])
