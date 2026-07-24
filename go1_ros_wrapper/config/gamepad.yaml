@@ -3,37 +3,3 @@ go1_udp_gamepad:
     port: 26760
     poll_rate_hz: 200.0
     publish_rate_hz: 100.0
-
-joy_node:
-  ros__parameters:
-    device_id: 0
-    deadzone: 0.05
-    autorepeat_rate: 50.0
-
-# Logitech F710 DirectInput buttons:
-# x/a/b/y/lb/rb/lt/rt/back/start/l3/r3
-# Go1 gamepad output order is:
-# lx, ly, rx, ry, A, B, X, Y, LB, RB, BACK, START, LT, RT, UP, DOWN, LEFT, RIGHT
-go1_joy_gamepad:
-  ros__parameters:
-    axis_lx: 0
-    axis_ly: 1
-    axis_rx: 2
-    axis_ry: 3
-    invert_lx: false
-    invert_ly: false
-    invert_rx: false
-    invert_ry: false
-    button_x: 0
-    button_a: 1
-    button_b: 2
-    button_y: 3
-    button_lb: 4
-    button_rb: 5
-    button_lt: 6
-    button_rt: 7
-    button_back: 8
-    button_start: 9
-    dpad_axis_x: 4
-    dpad_axis_y: 5
-    dpad_threshold: 0.5

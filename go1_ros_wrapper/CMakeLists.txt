@@ -58,10 +58,6 @@ add_executable(go1_udp_gamepad_node src/go1_udp_gamepad_node.cpp)
 ament_target_dependencies(go1_udp_gamepad_node rclcpp std_msgs)
 list(APPEND GO1_INSTALL_TARGETS go1_udp_gamepad_node)
 
-add_executable(go1_joy_gamepad_node src/go1_joy_gamepad_node.cpp)
-ament_target_dependencies(go1_joy_gamepad_node rclcpp sensor_msgs std_msgs)
-list(APPEND GO1_INSTALL_TARGETS go1_joy_gamepad_node)
-
 add_executable(go1_sensor_adapter_node src/go1_sensor_adapter_node.cpp)
 ament_target_dependencies(go1_sensor_adapter_node rclcpp sensor_msgs)
 list(APPEND GO1_INSTALL_TARGETS go1_sensor_adapter_node)

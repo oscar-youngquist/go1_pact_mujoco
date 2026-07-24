@@ -96,7 +96,7 @@ def generate_launch_description():
         DeclareLaunchArgument('backend', default_value='sim', description='sim or hardware'),
         DeclareLaunchArgument('start_controller', default_value='true'),
         DeclareLaunchArgument('start_gamepad', default_value='true'),
-        DeclareLaunchArgument('gamepad_backend', default_value='usb', description='usb, udp, or none'),
+        DeclareLaunchArgument('gamepad_backend', default_value='none', description='udp or none'),
         DeclareLaunchArgument(
             'start_sensors',
             default_value='false',
@@ -265,27 +265,6 @@ def generate_launch_description():
                 ('imu', '/go1/imu'),
                 ('low_cmd', '/go1/low_cmd'),
                 ('low_cmd_echo', '/go1/low_cmd_echo'),
-            ],
-        ),
-        Node(
-            package='joy',
-            executable='joy_node',
-            name='joy_node',
-            output='screen',
-            condition=gamepad_backend_condition('usb'),
-            parameters=[LaunchConfiguration('gamepad_config')],
-            remappings=[('joy', '/joy')],
-        ),
-        Node(
-            package='go1_ros_wrapper',
-            executable='go1_joy_gamepad_node',
-            name='go1_joy_gamepad',
-            output='screen',
-            condition=gamepad_backend_condition('usb'),
-            parameters=[LaunchConfiguration('gamepad_config')],
-            remappings=[
-                ('joy', '/joy'),
-                ('gamepad', '/go1/gamepad'),
             ],
         ),
         Node(

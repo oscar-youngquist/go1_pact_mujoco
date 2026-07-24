@@ -11,6 +11,7 @@ import math
 import os
 import re
 import signal
+import socket
 from array import array
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,15 +28,8 @@ from rclpy.qos import (
 from rosidl_runtime_py.utilities import get_message
 from geometry_msgs.msg import TwistStamped
 from sensor_msgs.msg import CameraInfo, Image, Imu, NavSatFix
-from std_msgs.msg import Float32MultiArray
 
-
-GAMEPAD_A = 4
-GAMEPAD_B = 5
-GAMEPAD_X = 6
-GAMEPAD_Y = 7
-GAMEPAD_BACK = 10
-GAMEPAD_VALUE_COUNT = 18
+REMOTE_COMMAND_MAGIC = "RECORD1"
 
 
 def now_stamp() -> str:
@@ -145,11 +139,11 @@ class Go1TrainingRecorder(Node):
         super().__init__("go1_training_recorder")
 
         self.requested_run_type = str(
-            self.declare_parameter("run_type", "gamepad").value
+            self.declare_parameter("run_type", "remote").value
         ).strip().lower()
-        if self.requested_run_type not in {"safe", "fast", "gamepad"}:
+        if self.requested_run_type not in {"safe", "fast", "remote"}:
             raise RuntimeError(
-                "Parameter 'run_type' must be 'safe', 'fast', or 'gamepad'."
+                "Parameter 'run_type' must be 'safe', 'fast', or 'remote'."
             )
 
         self.output_root = Path(
@@ -242,31 +236,30 @@ class Go1TrainingRecorder(Node):
         self.online_master_velocity_command_max_dt_ms = float(
             self.declare_parameter("online_master_velocity_command_max_dt_ms", 50.0).value
         )
-        self.gamepad_topic = str(
-            self.declare_parameter("gamepad_topic", "/go1/gamepad").value
+        self.remote_control_port = int(
+            self.declare_parameter("remote_control_port", 26761).value
         )
-        self.gamepad_control_enabled = (
-            bool(self.declare_parameter("gamepad_control_enabled", False).value)
-            or self.requested_run_type == "gamepad"
+        self.remote_control_enabled = (
+            bool(self.declare_parameter("remote_control_enabled", False).value)
+            or self.requested_run_type == "remote"
         )
 
         self.subscriptions_by_topic: dict[str, Any] = {}
         self.topic_types: dict[str, str] = {}
         self.node_closed = False
         self.run_active = False
-        self.gamepad_buttons_previous = [False] * GAMEPAD_VALUE_COUNT
-        self.gamepad_control_sub: Any | None = None
+        self.remote_control_socket: socket.socket | None = None
+        self.remote_control_timer: Any | None = None
         self.initialize_inactive_run_state()
 
-        if self.gamepad_control_enabled:
-            self.gamepad_control_sub = self.create_subscription(
-                Float32MultiArray,
-                self.gamepad_topic,
-                self.handle_gamepad_control,
-                self.qos_for_topic(self.gamepad_topic),
-            )
+        if self.remote_control_enabled:
+            self.remote_control_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.remote_control_socket.setblocking(False)
+            self.remote_control_socket.bind(("127.0.0.1", self.remote_control_port))
+            self.remote_control_timer = self.create_timer(0.02, self.poll_remote_control)
             self.get_logger().info(
-                "Gamepad recording control armed: hold BACK and press X=safe, Y=fast, B=stop/save."
+                "Go2 remote recording control armed: SELECT+X=safe, "
+                "SELECT+Y=fast, SELECT+B=stop/save."
             )
 
         if self.requested_run_type in {"safe", "fast"}:
@@ -289,7 +282,7 @@ class Go1TrainingRecorder(Node):
             )
         else:
             self.get_logger().info(
-                "Recorder is idle and waiting for a gamepad start command."
+                "Recorder is idle and waiting for a Go2 remote command."
             )
 
     def initialize_inactive_run_state(self) -> None:
@@ -372,30 +365,30 @@ class Go1TrainingRecorder(Node):
         )
         return True
 
-    def handle_gamepad_control(self, msg: Float32MultiArray) -> None:
-        if len(msg.data) < GAMEPAD_VALUE_COUNT:
-            self.get_logger().warn(
-                f"Ignoring gamepad recording command with {len(msg.data)} values; "
-                f"expected at least {GAMEPAD_VALUE_COUNT}."
-            )
+    def poll_remote_control(self) -> None:
+        if self.remote_control_socket is None:
             return
 
-        buttons = [
-            bool(msg.data[index]) if index < len(msg.data) else False
-            for index in range(GAMEPAD_VALUE_COUNT)
-        ]
+        while True:
+            try:
+                payload, _address = self.remote_control_socket.recvfrom(128)
+            except BlockingIOError:
+                return
+            except OSError as error:
+                self.get_logger().error(f"Go2 remote-control socket failed: {error}")
+                return
 
-        def rising(index: int) -> bool:
-            return buttons[index] and not self.gamepad_buttons_previous[index]
+            fields = payload.decode("ascii", errors="ignore").strip().split()
+            if len(fields) != 2 or fields[0] != REMOTE_COMMAND_MAGIC:
+                continue
 
-        if buttons[GAMEPAD_BACK] and rising(GAMEPAD_X):
-            self.start_run("safe", "gamepad BACK+X")
-        elif buttons[GAMEPAD_BACK] and rising(GAMEPAD_Y):
-            self.start_run("fast", "gamepad BACK+Y")
-        elif buttons[GAMEPAD_BACK] and rising(GAMEPAD_B):
-            self.stop_run("gamepad BACK+B")
-
-        self.gamepad_buttons_previous = buttons
+            command = fields[1].lower()
+            if command == "safe":
+                self.start_run("safe", "Go2 remote SELECT+X")
+            elif command == "fast":
+                self.start_run("fast", "Go2 remote SELECT+Y")
+            elif command == "stop":
+                self.stop_run("Go2 remote SELECT+B")
 
     def write_metadata(self) -> None:
         if self.run_dir is None:
@@ -1260,6 +1253,9 @@ class Go1TrainingRecorder(Node):
         self.node_closed = True
         if self.run_active:
             self.stop_run("node shutdown")
+        if self.remote_control_socket is not None:
+            self.remote_control_socket.close()
+            self.remote_control_socket = None
 
 
 def main() -> None:
