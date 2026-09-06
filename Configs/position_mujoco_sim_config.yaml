@@ -1,0 +1,10 @@
+sim_mode: 0
+sim_duration: 40000.0
+Mujoco_XML_FileName: 'Resources/scene.xml'
+external_z_step: 10
+num_joints: 12
+action_dim: 12
+pd_timestep: 0.002
+ctrl_type: 'position'
+ctrl_config_file: 'position_config.yaml'
+js_device: '/dev/input/js0'
