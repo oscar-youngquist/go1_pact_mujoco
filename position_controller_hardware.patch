@@ -1,0 +1,460 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 7fbd184..db1603c 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -35,6 +35,7 @@ include_directories(
+ 
+ 
+ set(headers
++  include/posistion_controller.hpp
+   src/HardwareBridge.hpp)
+ 
+ set(sources
+diff --git a/include/param/cfg_param.hpp b/include/param/cfg_param.hpp
+index 775153f..b5cd06e 100644
+--- a/include/param/cfg_param.hpp
++++ b/include/param/cfg_param.hpp
+@@ -14,11 +14,13 @@ public:
+ class PACTRLCfg : public BaseCfg
+ {
+ public:
+-    PACTRLCfg(const std::string &filename) : BaseCfg(filename)
++    PACTRLCfg(const std::string &filename, bool position_only = false) : BaseCfg(filename)
+     {
+         auto cfg = YAML::LoadFile(filename);
+         try
+         {
++            if (cfg["ctrl_type"]) ctrl_type = cfg["ctrl_type"].as<std::string>();
++            position_only = position_only || ctrl_type == "position";
+             policy_name = cfg["policy_name"].as<std::string>();
+             dt = cfg["dt"].as<float>();
+             
+@@ -28,7 +30,7 @@ public:
+             ctrl_kd = cfg["ctrl_kd"].as<float>();
+             
+             pos_action_scale = cfg["pos_action_scale"].as<float>();
+-            tau_action_scale = cfg["tau_action_scale"].as<float>();
++            tau_action_scale = position_only ? 0.0f : cfg["tau_action_scale"].as<float>();
+             
+             lin_vel_scale = cfg["lin_vel_scale"].as<float>();
+             ang_vel_scale = cfg["ang_vel_scale"].as<float>();
+@@ -38,7 +40,7 @@ public:
+             clip_obs = cfg["clip_observations"].as<float>();
+ 
+             ema_alpha_pos = cfg["ema_alpha_pos"].as<float>();
+-            ema_alpha_tau = cfg["ema_alpha_tau"].as<float>();
++            ema_alpha_tau = position_only ? 0.0f : cfg["ema_alpha_tau"].as<float>();
+ 
+             
+             num_single_obs = cfg["num_single_obs"].as<int>();
+@@ -112,6 +114,7 @@ public:
+     int num_single_obs;
+     int frame_stack;
+     std::string policy_name;
++    std::string ctrl_type = "pact";
+     std::string log_prefix = "pact_log";
+     int log_flush_count = 500;
+     float log_loop_dt = 0.05f;
+@@ -122,3 +125,9 @@ public:
+     std::vector<float> pos_limit_max;
+     std::vector<float> tau_limit;
+ };
++
++class PositionRLCfg : public PACTRLCfg
++{
++public:
++    explicit PositionRLCfg(const std::string& filename) : PACTRLCfg(filename, true) {}
++};
+diff --git a/src/HardwareBridge.cpp b/src/HardwareBridge.cpp
+index 30b509f..439fdc3 100644
+--- a/src/HardwareBridge.cpp
++++ b/src/HardwareBridge.cpp
+@@ -58,9 +58,20 @@ _udp(LOWLEVEL, 8090, "192.168.123.10", 8007)
+     _log_loop_dt = cfg.log_loop_dt > 0.0f ? cfg.log_loop_dt : 0.05f;
+     _log_buffer.reserve(_log_flush_count);
+ 
+-    _ctrl = new PACTController(config_file_path); 
++    if (cfg.ctrl_type == "pact")
++    {
++        _ctrl = new PACTController(config_file_path);
++    }
++    else if (cfg.ctrl_type == "position")
++    {
++        _ctrl = new PositionController(config_file_path);
++    }
++    else
++    {
++        throw std::invalid_argument("ctrl_type must be pact or position");
++    }
+ 
+-    std::cout << "Constructed Controller" << std::endl;
++    std::cout << "Constructed " << cfg.ctrl_type << " controller" << std::endl;
+ }
+ 
+ void HardwareBridge::UDPRecv()
+diff --git a/src/HardwareBridge.hpp b/src/HardwareBridge.hpp
+index 2defd15..7ecd879 100644
+--- a/src/HardwareBridge.hpp
++++ b/src/HardwareBridge.hpp
+@@ -21,6 +21,7 @@
+ #include "robot_interface.hpp"
+ #include "gamepad.hpp"
+ #include "pact_controller.hpp"
++#include "posistion_controller.hpp"
+ #include "state_machine.hpp"
+ #include "linear_kf_observer.hpp"
+ 
+diff --git a/src/main.cpp b/src/main.cpp
+index 4729323..e046b99 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -24,11 +24,18 @@ int main(int argc, char** argv)
+   
+   std::string param_folder = "../params";
+   fs::path param = fs::current_path() / param_folder;
+-  std::string config_file_path = param / "pact_config.yaml";
++  if (argc > 2 || (argc == 2 && std::string(argv[1]) == "--help"))
++  {
++    std::cout << "Usage: pact_deploy [controller-config.yaml]" << std::endl;
++    return argc > 2 ? 1 : 0;
++  }
++  const std::string config_file_path = argc == 2
++      ? fs::absolute(argv[1]).string()
++      : (param / "pact_config.yaml").string();
+ 
+   HardwareBridge* hardware_bridge = new HardwareBridge(config_file_path);
+ 
+   hardware_bridge->run();
+   
+   return 0;
+-}
+\ No newline at end of file
++}
+diff --git a/POSITION_CONTROL.md b/POSITION_CONTROL.md
+new file mode 100644
+index 0000000..c2f9cdd
+--- /dev/null
++++ b/POSITION_CONTROL.md
+@@ -0,0 +1,61 @@
++# Position-only controller on Jetson Orin
++
++Initial source port from simulation commit `2fb76e4` onto hardware `main` at
++`3c5311c`. This port has not been configured, compiled, or executed on the host
++machine. Compilation and physical-robot validation are pending on the Orin.
++
++## Configuration and launch
++
++Place the exported position-only TorchScript model at:
++
++```text
++models/position/May18_21-30-18_pos_100hz_spec_ite3000.pt
++```
++
++Alternatively, change `policy_name` in `params/position_config.yaml`. Relative
++model paths resolve against this repository's `models/` directory; absolute
++paths are accepted. Model weights are not included in this port.
++
++On the Orin, use the existing deployment build procedure. For an existing
++`build` directory, the commands from the repository root are:
++
++```bash
++cmake -S . -B build
++cmake --build build -j2
++cd build
++./pact_deploy ../params/position_config.yaml
++```
++
++The YAML selects `ctrl_type: position`. Running `./pact_deploy` without an
++argument from `build/` retains the existing PACT configuration. Unknown
++controller types are rejected. No MuJoCo dependencies or simulation targets
++are added; the existing Orin LibTorch/CUDA and arm64 SDK configuration is kept.
++
++## Controller contract
++
++- Calls `forward(obs, obs_history)` during startup validation and control.
++- Requires a finite `[1, 12]` position-action output. PACT's 24-output tensor
++  is rejected; `act_inference` is not used by the position controller.
++- Defaults to `[1, 45]` observations and `[1, 900]` history (20 frames), with
++  the same field order as the simulation position controller. Only exports
++  trained with trailing zero torque inputs should use the supported 57-field
++  mode; it is not the legacy computed-torque observation format.
++- Matches hardware PACT's Unitree remote signs: `+ly, -lx, -rx` for forward,
++  lateral, and yaw commands. Joint order is FR, FL, RR, RL, three joints per leg.
++- Keeps the simulation position model's shared PACT hyperparameters: 100 Hz
++  inference, 0.25 position-action scale, 30/0.6 control gains, 60/5 standing
++  gains, normalization, clipping, command limits, and standing pose. EMA stays
++  inactive, as in the current PACT and simulation position controllers.
++- Sends clipped joint-position targets and zero desired velocity/feedforward
++  torque through the existing Unitree motor-command path. PD actuation remains
++  on the robot. Reset clears history and previous actions.
++
++The hardware state machine, UDP threads, estimator, existing logging, and
++`PositionLimit`/`PowerProtect` calls are retained. Estimator configuration uses
++main's hardware sensor values, including the 100-count airbag contact threshold.
++Model loading and the initial forward validation happen before UDP loops start.
++
++Use the existing physical-robot test procedure on the Orin. Confirm the exported
++input shapes, controller gains, joint ordering, and joystick directions during
++that validation. The existing controls are START to initialize, L1+R2 to stand,
++L1+A to enter policy control, and L1+B to enter damping.
+diff --git a/include/posistion_controller.hpp b/include/posistion_controller.hpp
+new file mode 100644
+index 0000000..639b345
+--- /dev/null
++++ b/include/posistion_controller.hpp
+@@ -0,0 +1,167 @@
++#pragma once
++
++#include <algorithm>
++#include <array>
++#include <cmath>
++#include <deque>
++#include <filesystem>
++#include <stdexcept>
++#include <vector>
++
++#include "basic_controller.hpp"
++
++// The filename retains the spelling used by the existing repository.
++// Joint order and observation normalization match PACTController.
++class PositionController : public BasicUserController
++{
++public:
++    explicit PositionController(const std::string& config_file)
++        : config_file_(config_file), cfg_(config_file) {}
++
++    void loadParam() override
++    {
++        if ((cfg_.num_single_obs != 45 && cfg_.num_single_obs != 57) ||
++            cfg_.frame_stack <= 0 || !std::isfinite(cfg_.dt) || cfg_.dt <= 0)
++            throw std::invalid_argument("Position policy requires 45 or 57 observations, positive frame_stack and dt");
++        if (cfg_.stand_pos.size() != 12 || cfg_.sit_pos.size() != 12 ||
++            cfg_.pos_limit_min.size() != 12 || cfg_.pos_limit_max.size() != 12 ||
++            cfg_.tau_limit.size() != 12)
++            throw std::invalid_argument("Position policy joint configuration must contain 12 values per array");
++
++        dt = cfg_.dt;
++        stand_kp = cfg_.stand_kp;
++        stand_kd = cfg_.stand_kd;
++        ctrl_kp = cfg_.ctrl_kp;
++        ctrl_kd = cfg_.ctrl_kd;
++        std::copy_n(cfg_.stand_pos.begin(), 12, stand_pos.begin());
++        std::copy_n(cfg_.sit_pos.begin(), 12, sit_pos.begin());
++        std::copy_n(cfg_.pos_limit_min.begin(), 12, jpos_lim_min.begin());
++        std::copy_n(cfg_.pos_limit_max.begin(), 12, jpos_lim_max.begin());
++        std::copy_n(cfg_.tau_limit.begin(), 12, jtau_lim.begin());
++        ClearHistory();
++        std::cout << "Position policy: " << cfg_.num_single_obs << " observations, "
++                  << cfg_.frame_stack << " frames, 12 position outputs, dt=" << dt << std::endl;
++    }
++
++    void loadPolicy() override
++    {
++        namespace fs = std::filesystem;
++        fs::path model_path(cfg_.policy_name);
++        if (model_path.is_relative())
++        {
++            // Hardware layout: <repository>/params and <repository>/models.
++            const auto params = fs::absolute(config_file_).lexically_normal().parent_path();
++            model_path = params.parent_path() / "models" / model_path;
++        }
++        policy = torch::jit::load(model_path.string(), torch::kCPU);
++        policy.eval();
++        DummyCalculate(); // Validate the exported input/output contract before control starts.
++        std::cout << "Loaded position policy: " << model_path << std::endl;
++    }
++
++    void reset(BasicRobotInterface&, Gamepad&) override { ClearHistory(); }
++
++    void GetInput(BasicRobotInterface& robot, Gamepad& gamepad) override
++    {
++        // Match the Unitree remote convention used by hardware PACTController.
++        cmd = {gamepad.ly, -gamepad.lx, -gamepad.rx};
++        robot.cmd = cmd;
++        gravity_ = robot.projected_gravity;
++        gyro_ = robot.gyro;
++        for (size_t i = 0; i < 12; ++i)
++        {
++            joint_offset_[i] = robot.jpos[i] - stand_pos[i];
++            joint_velocity_[i] = robot.jvel[i];
++        }
++    }
++
++    void DummyCalculate() override
++    {
++        torch::InferenceMode guard;
++        ValidateOutput(policy.forward({
++            torch::zeros({1, cfg_.num_single_obs}),
++            torch::zeros({1, cfg_.frame_stack * cfg_.num_single_obs})}).toTensor());
++    }
++
++    void Calculate() override
++    {
++        torch::InferenceMode guard;
++        FillObservation();
++        history_obs.pop_front();
++        history_obs.push_back(single_step_obs); // Include the current frame, as in PACT.
++        auto obs = torch::tensor(single_step_obs).unsqueeze(0);
++        std::vector<float> flat_history;
++        flat_history.reserve(cfg_.frame_stack * cfg_.num_single_obs);
++        for (const auto& frame : history_obs)
++            flat_history.insert(flat_history.end(), frame.begin(), frame.end());
++        auto history = torch::tensor(flat_history).unsqueeze(0);
++        const auto output = policy.forward({obs, history}).toTensor();
++        ValidateOutput(output);
++        // Match PACT's direct clipped actions (its EMA settings are currently inactive).
++        for (size_t i = 0; i < 12; ++i)
++        {
++            pos_actions[i] = std::clamp(output[0][i].item<float>(),
++                                        -cfg_.clip_actions, cfg_.clip_actions);
++            jpos_des[i] = std::clamp(stand_pos[i] + cfg_.pos_action_scale * pos_actions[i],
++                                     jpos_lim_min[i], jpos_lim_max[i]);
++        }
++        jvel_des.fill(0.0f);
++        jtau_des.fill(0.0f);
++    }
++
++    std::vector<float> GetLog() override { return {cmd[0], cmd[1], cmd[2]}; }
++
++    std::array<float, 3> cmd{};
++    std::array<float, 12> pos_actions{};
++    std::vector<float> single_step_obs;
++    std::deque<std::vector<float>> history_obs;
++    torch::jit::script::Module policy;
++
++private:
++    static void ValidateOutput(const torch::Tensor& output)
++    {
++        if (output.dim() != 2 || output.size(0) != 1 || output.size(1) != 12 ||
++            !output.is_floating_point() || !torch::isfinite(output).all().item<bool>())
++            throw std::runtime_error("Position forward must return a finite [1, 12] tensor");
++    }
++
++    void ClearHistory()
++    {
++        pos_actions.fill(0.0f);
++        single_step_obs.assign(cfg_.num_single_obs, 0.0f);
++        history_obs.assign(cfg_.frame_stack, single_step_obs);
++        jpos_des = stand_pos;
++        jvel_des.fill(0.0f);
++        jtau_des.fill(0.0f);
++    }
++
++    void FillObservation()
++    {
++        auto clip = [this](float value) {
++            return std::clamp(value, -cfg_.clip_obs, cfg_.clip_obs);
++        };
++        single_step_obs[0] = clip(cmd[0] * cfg_.lin_vel_scale);
++        single_step_obs[1] = clip(cmd[1] * cfg_.lin_vel_scale);
++        single_step_obs[2] = clip(cmd[2] * cfg_.ang_vel_scale);
++        for (size_t i = 0; i < 3; ++i)
++        {
++            single_step_obs[i + 3] = clip(gravity_[i]);
++            single_step_obs[i + 6] = clip(gyro_[i] * cfg_.ang_vel_scale);
++        }
++        for (size_t i = 0; i < 12; ++i)
++        {
++            single_step_obs[i + 9] = clip(joint_offset_[i] * cfg_.dof_pos_scale);
++            single_step_obs[i + 21] = clip(joint_velocity_[i] * cfg_.dof_vel_scale);
++            single_step_obs[i + 33] = clip(pos_actions[i]);
++        }
++        // Only for exports explicitly trained with zero-padded PACT observations.
++        // No torque prediction or synthetic PD-torque feedback is added.
++        if (cfg_.num_single_obs == 57)
++            std::fill(single_step_obs.begin() + 45, single_step_obs.end(), 0.0f);
++    }
++
++    std::string config_file_;
++    PositionRLCfg cfg_;
++    std::array<float, 3> gravity_{0.0f, 0.0f, -1.0f}, gyro_{};
++    std::array<float, 12> joint_offset_{}, joint_velocity_{};
++};
+diff --git a/params/position_config.yaml b/params/position_config.yaml
+new file mode 100644
+index 0000000..e626253
+--- /dev/null
++++ b/params/position_config.yaml
+@@ -0,0 +1,82 @@
++# Model path is relative to this deployment repository's models/ directory.
++ctrl_type: "position"
++policy_name: "position/May18_21-30-18_pos_100hz_spec_ite3000.pt"
++
++use_kalman_filter: 1
++command_limit_max_abs: [1.0, 0.5, 1.0]
++
++dt: 0.01
++
++ema_alpha_pos: 0.3
++
++stand_kp: 60.0
++stand_kd: 5.0
++
++ctrl_kp: 30.0
++ctrl_kd: 0.60
++
++pos_action_scale: 0.25
++
++lin_vel_scale: 1.0
++ang_vel_scale: 0.25
++dof_pos_scale: 1.0
++dof_vel_scale: 0.05
++
++clip_observations: 100.0
++clip_actions: 50.0
++
++frame_stack: 20
++# 45 = commands + gravity + gyro + joint offsets/velocities + previous position actions.
++# Use 57 only for an export trained with 12 trailing zero torque inputs.
++num_single_obs: 45
++stand_pos: [
++    -0.1,
++    0.8,
++    -1.5,
++    0.1,
++    0.8,
++    -1.5,
++    -0.1,
++    0.8,
++    -1.5,
++    0.1,
++    0.8,
++    -1.5
++]
++
++sit_pos: [
++    -0.0,
++    1.4,
++    -2.7,
++    0.0,
++    1.4,
++    -2.7,
++    -0.0,
++    1.4,
++    -2.7,
++    0.0,
++    1.4,
++    -2.7
++]
++
++joint_limit_max: [ 0.8029,  2.9660, -0.8370,  0.8029,  2.9660, -0.8370,  0.8029,  2.9660, -0.8370,  0.8029,  2.9660, -0.8370]
++joint_limit_min: [-0.8029, -0.6630, -2.7210, -0.8029, -0.6630, -2.7210, -0.8029, -0.6630,-2.7210, -0.8029, -0.6630, -2.7210]
++joint_tau_max: [25.0, 25.00, 37.0, 25.0, 25.00, 37.0, 25.0, 25.00, 37.0, 25.0, 25.00, 37.0]
++
++# Hardware estimator settings from main (airbag contact counts).
++estimator_dt: 0.002
++
++imu_process_noise_position: 0.02
++imu_process_noise_velocity: 0.02
++foot_process_noise_position: 0.002
++foot_sensor_noise_position: 0.001
++foot_sensor_noise_velocity: 0.1
++foot_height_sensor_noise: 0.001
++foot_airbag_contact_lower: 100
++
++go1_body_length: 0.3762
++go1_body_width: 0.0935
++go1_abad_link_length: 0.08
++go1_hip_link_length: 0.213
++go1_knee_link_length: 0.223
++go1_knee_link_y_offset: 0.0
